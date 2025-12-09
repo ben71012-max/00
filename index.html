@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>數獨專業版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 禁止選取文字，讓操作像 App 一樣 */
+        body {
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        /* 隱藏捲軸但保持滾動功能 */
+        ::-webkit-scrollbar {
+            width: 0px;
+            background: transparent;
+        }
+
+        /* 筆記網格樣式 */
+        .note-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        .note-item {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 8px;
+            line-height: 1;
+            font-weight: 700;
+            color: #64748b;
+        }
+        @media (min-width: 640px) {
+            .note-item { font-size: 10px; }
+        }
+
+        /* 簡單的淡入動畫 */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center py-6 font-sans text-gray-800">
+
+    <!-- 標題與資訊區 -->
+    <div class="w-full max-w-lg px-4 mb-6">
+        <div class="flex justify-between items-end mb-4">
+            <div>
+                <h1 class="text-3xl font-extrabold text-slate-800 tracking-tight">Sudoku Pro</h1>
+                <p class="text-sm text-slate-500 font-medium" id="difficulty-label">難度: 中等</p>
+            </div>
+            <div class="flex flex-col items-end">
+                <div class="text-2xl font-mono font-bold text-slate-700 tabular-nums" id="timer">00:00</div>
+                <div class="text-xs text-red-500 font-bold mt-1">錯誤: <span id="mistakes">0</span>/3</div>
+            </div>
+        </div>
+
+        <!-- 控制列 -->
+        <div class="bg-white p-2 rounded-xl shadow-sm border border-slate-200 flex justify-between items-center overflow-x-auto">
+            <div class="flex gap-1" id="difficulty-buttons">
+                <!-- 由 JS 生成按鈕 -->
+            </div>
+            <button onclick="startNewGame()" class="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors ml-2" title="重新開始">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- 遊戲盤面 -->
+    <div class="relative bg-slate-800 p-1.5 rounded-xl shadow-2xl">
+        <div id="grid-container" class="grid grid-cols-9 bg-slate-800 gap-[1px] border-2 border-slate-800">
+            <!-- 81個格子由 JS 生成 -->
+        </div>
+
+        <!-- 勝利畫面 -->
+        <div id="win-overlay" class="hidden absolute inset-0 z-20 bg-slate-900/90 backdrop-blur-sm rounded-xl flex flex-col items-center justify-center text-white animate-fade-in">
+            <svg class="text-yellow-400 mb-4 drop-shadow-[0_0_15px_rgba(250,204,21,0.5)]" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+            <h2 class="text-4xl font-bold mb-2">完美解題！</h2>
+            <p class="text-slate-300 mb-6 font-mono">耗時: <span id="final-time">00:00</span></p>
+            <button onclick="startNewGame()" class="px-8 py-3 bg-blue-600 hover:bg-blue-500 rounded-full font-bold shadow-lg transition-transform active:scale-95">
+                下一局挑戰
+            </button>
+        </div>
+    </div>
+
+    <!-- 輸入控制區 -->
+    <div class="w-full max-w-lg px-4 mt-6">
+        
+        <!-- 工具按鈕 -->
+        <div class="flex justify-center mb-4 gap-4">
+            <button id="btn-note" onclick="toggleNoteMode()" class="flex items-center gap-2 px-6 py-3 bg-white text-slate-600 border-2 border-slate-200 rounded-full font-bold shadow-sm hover:bg-slate-50 transition-all">
+                <svg id="icon-note" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                <span>筆記模式</span>
+                <span class="hidden sm:inline bg-slate-200 text-[10px] px-1.5 py-0.5 rounded ml-1">N</span>
+            </button>
+
+            <button onclick="handleInput(0)" class="flex items-center gap-2 px-6 py-3 bg-white text-slate-600 border-2 border-slate-200 rounded-full font-bold shadow-sm hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-all">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
+                清除
+            </button>
+        </div>
+
+        <!-- 數字鍵盤 -->
+        <div class="grid grid-cols-9 gap-1 sm:gap-2">
+            <!-- 1-9 按鈕由 JS 生成 -->
+            <script>
+                for(let i=1; i<=9; i++) {
+                    document.write(`
+                        <button onclick="handleInput(${i})" class="h-12 sm:h-14 bg-white rounded-lg shadow-sm border-b-4 border-slate-200 active:border-b-0 active:translate-y-[4px] text-xl sm:text-2xl font-bold text-blue-600 hover:bg-blue-50 transition-all flex items-center justify-center">
+                            ${i}
+                        </button>
+                    `);
+                }
+            </script>
+        </div>
+    </div>
+
+    <div class="mt-6 text-slate-400 text-xs text-center font-mono">
+        鍵盤操作: 方向鍵移動 • 數字鍵輸入 • N 切換筆記
+    </div>
+
+    <script>
+        // --- 遊戲常數 ---
+        const BLANK = 0;
+        const DIFFICULTY = {
+            Easy: { label: '簡單', holes: 30 },
+            Medium: { label: '中等', holes: 45 },
+            Hard: { label: '困難', holes: 56 },
+            Expert: { label: '專家', holes: 64 }
+        };
+
+        // --- 全域狀態 ---
+        let state = {
+            board: [],
+            initialBoard: [],
+            solvedBoard: [],
+            notes: [], // 9x9 array of Sets
+            selectedCell: null, // [row, col]
+            difficulty: 'Medium',
+            isNoteMode: false,
+            timer: 0,
+            mistakes: 0,
+            isGameWon: false,
+            isPlaying: false
+        };
+
+        let timerInterval = null;
+
+        // --- 核心演算法 ---
+
+        function isValid(board, row, col, num) {
+            for (let x = 0; x < 9; x++) {
+                if (board[row][x] === num && x !== col) return false;
+                if (board[x][col] === num && x !== row) return false;
+            }
+            const startRow = Math.floor(row / 3) * 3;
+            const startCol = Math.floor(col / 3) * 3;
+            for (let i = 0; i < 3; i++) {
+                for (let j = 0; j < 3; j++) {
+                    if (board[startRow + i][startCol + j] === num && (startRow + i !== row || startCol + j !== col)) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        function generateSudoku(difficultyKey) {
+            const newBoard = Array.from({ length: 9 }, () => Array(9).fill(BLANK));
+
+            // 1. 填充對角線宮格
+            const fillBox = (r, c) => {
+                const nums = [1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5);
+                let idx = 0;
+                for (let i = 0; i < 3; i++) {
+                    for (let j = 0; j < 3; j++) {
+                        newBoard[r + i][c + j] = nums[idx++];
+                    }
+                }
+            };
+            for (let i = 0; i < 9; i += 3) fillBox(i, i);
+
+            // 2. 解題
+            const solve = (board) => {
+                for (let row = 0; row < 9; row++) {
+                    for (let col = 0; col < 9; col++) {
+                        if (board[row][col] === BLANK) {
+                            const nums = [1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5);
+                            for (let num of nums) {
+                                if (isValid(board, row, col, num)) {
+                                    board[row][col] = num;
+                                    if (solve(board)) return true;
+                                    board[row][col] = BLANK;
+                                }
+                            }
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            };
+            solve(newBoard);
+            
+            const solvedBoard = newBoard.map(row => [...row]);
+
+            // 3. 挖洞
+            const holes = DIFFICULTY[difficultyKey].holes;
+            let attempts = holes;
+            const puzzleBoard = newBoard.map(row => [...row]);
+            
+            while (attempts > 0) {
+                let r = Math.floor(Math.random() * 9);
+                let c = Math.floor(Math.random() * 9);
+                if (puzzleBoard[r][c] !== BLANK) {
+                    puzzleBoard[r][c] = BLANK;
+                    attempts--;
+                }
+            }
+
+            return { initial: puzzleBoard, solved: solvedBoard };
+        }
+
+        // --- 遊戲邏輯與 UI 更新 ---
+
+        function initUI() {
+            // 生成難度按鈕
+            const diffContainer = document.getElementById('difficulty-buttons');
+            diffContainer.innerHTML = '';
+            Object.keys(DIFFICULTY).forEach(key => {
+                const btn = document.createElement('button');
+                btn.className = `px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${key === state.difficulty ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`;
+                btn.textContent = DIFFICULTY[key].label;
+                btn.onclick = () => setDifficulty(key);
+                btn.id = `btn-diff-${key}`;
+                diffContainer.appendChild(btn);
+            });
+
+            // 生成網格 DOM
+            const gridContainer = document.getElementById('grid-container');
+            gridContainer.innerHTML = '';
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    const cell = document.createElement('div');
+                    cell.id = `cell-${r}-${c}`;
+                    
+                    // 邊框樣式
+                    let classes = ['w-9', 'h-9', 'sm:w-11', 'sm:h-11', 'md:w-12', 'md:h-12', 'relative', 'flex', 'items-center', 'justify-center', 'cursor-pointer', 'bg-white', 'transition-colors', 'duration-75'];
+                    if ((c + 1) % 3 === 0 && c !== 8) classes.push('border-r-2', 'border-r-slate-800');
+                    else classes.push('border-r', 'border-r-slate-200'); // 內部細線
+                    
+                    if ((r + 1) % 3 === 0 && r !== 8) classes.push('border-b-2', 'border-b-slate-800');
+                    else classes.push('border-b', 'border-b-slate-200'); // 內部細線
+
+                    cell.className = classes.join(' ');
+                    cell.onclick = () => selectCell(r, c);
+
+                    // 主數字
+                    const mainNum = document.createElement('span');
+                    mainNum.className = 'text-xl sm:text-2xl font-semibold z-10';
+                    cell.appendChild(mainNum);
+
+                    // 筆記層
+                    const noteGrid = document.createElement('div');
+                    noteGrid.className = 'note-grid absolute inset-0 p-[2px] pointer-events-none hidden';
+                    for(let i=1; i<=9; i++) {
+                        const noteItem = document.createElement('div');
+                        noteItem.className = 'note-item';
+                        noteItem.textContent = ''; // 預設空
+                        noteGrid.appendChild(noteItem);
+                    }
+                    cell.appendChild(noteGrid);
+
+                    gridContainer.appendChild(cell);
+                }
+            }
+        }
+
+        function startNewGame(diff = state.difficulty) {
+            const { initial, solved } = generateSudoku(diff);
+            
+            state.board = initial.map(row => [...row]);
+            state.initialBoard = initial.map(row => [...row]);
+            state.solvedBoard = solved;
+            state.notes = Array.from({length: 9}, () => Array.from({length: 9}, () => new Set()));
+            state.mistakes = 0;
+            state.isGameWon = false;
+            state.timer = 0;
+            state.isPlaying = true;
+            state.selectedCell = null;
+
+            // 重置 UI
+            document.getElementById('win-overlay').classList.add('hidden');
+            document.getElementById('mistakes').textContent = '0';
+            updateTimerDisplay();
+            
+            // 重啟計時器
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if(state.isPlaying) {
+                    state.timer++;
+                    updateTimerDisplay();
+                }
+            }, 1000);
+
+            renderBoard();
+            updateHighlight();
+        }
+
+        function setDifficulty(diff) {
+            state.difficulty = diff;
+            // 更新按鈕樣式
+            Object.keys(DIFFICULTY).forEach(key => {
+                const btn = document.getElementById(`btn-diff-${key}`);
+                if (key === diff) {
+                    btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap bg-slate-800 text-white shadow-md';
+                } else {
+                    btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap text-slate-500 hover:bg-slate-100';
+                }
+            });
+            document.getElementById('difficulty-label').textContent = `難度: ${DIFFICULTY[diff].label}`;
+            startNewGame(diff);
+        }
+
+        function toggleNoteMode() {
+            state.isNoteMode = !state.isNoteMode;
+            const btn = document.getElementById('btn-note');
+            const icon = document.getElementById('icon-note');
+            
+            if (state.isNoteMode) {
+                btn.className = 'flex items-center gap-2 px-6 py-3 rounded-full font-bold shadow-sm transition-all border-2 bg-slate-800 text-white border-slate-800 scale-105';
+                icon.setAttribute('fill', 'white');
+            } else {
+                btn.className = 'flex items-center gap-2 px-6 py-3 bg-white text-slate-600 border-2 border-slate-200 rounded-full font-bold shadow-sm hover:bg-slate-50 transition-all';
+                icon.setAttribute('fill', 'none');
+            }
+        }
+
+        function updateTimerDisplay() {
+            const m = Math.floor(state.timer / 60).toString().padStart(2, '0');
+            const s = (state.timer % 60).toString().padStart(2, '0');
+            document.getElementById('timer').textContent = `${m}:${s}`;
+        }
+
+        function selectCell(r, c) {
+            if (state.isGameWon) return;
+            state.selectedCell = [r, c];
+            updateHighlight();
+        }
+
+        function updateHighlight() {
+            // 清除所有舊的高亮
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    const cell = document.getElementById(`cell-${r}-${c}`);
+                    const mainNum = cell.querySelector('span');
+                    
+                    // 重置基礎樣式
+                    cell.classList.remove('!bg-blue-600', '!text-white', '!bg-blue-200', 'bg-blue-50', '!bg-red-50', '!text-red-500');
+                    mainNum.classList.remove('!text-white', '!text-red-500');
+                    
+                    // 恢復文字顏色
+                    const val = state.board[r][c];
+                    const isInit = state.initialBoard[r][c] !== BLANK;
+                    
+                    if (val !== BLANK) {
+                        mainNum.className = `text-xl sm:text-2xl font-semibold z-10 ${isInit ? 'text-slate-900 font-bold' : 'text-blue-600'}`;
+                    } else {
+                        mainNum.className = 'text-xl sm:text-2xl font-semibold z-10';
+                    }
+                }
+            }
+
+            if (!state.selectedCell) return;
+
+            const [sr, sc] = state.selectedCell;
+            const selectedVal = state.board[sr][sc];
+
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    const cell = document.getElementById(`cell-${r}-${c}`);
+                    const mainNum = cell.querySelector('span');
+                    const val = state.board[r][c];
+                    const isInit = state.initialBoard[r][c] !== BLANK;
+
+                    // 1. 錯誤標記 (總是最高優先級)
+                    const isErr = !isInit && val !== BLANK && val !== state.solvedBoard[r][c];
+                    if (isErr) {
+                        cell.classList.add('!bg-red-50');
+                        mainNum.classList.add('!text-red-500');
+                    }
+
+                    // 2. 相關格子 (同行、同列、同宮)
+                    const isSameRow = r === sr;
+                    const isSameCol = c === sc;
+                    const isSameBox = Math.floor(r/3) === Math.floor(sr/3) && Math.floor(c/3) === Math.floor(sc/3);
+                    
+                    if (isSameRow || isSameCol || isSameBox) {
+                        cell.classList.add('bg-blue-50');
+                    }
+
+                    // 3. 相同數字
+                    if (val !== BLANK && val === selectedVal) {
+                        cell.classList.add('!bg-blue-200');
+                    }
+
+                    // 4. 選中格子 (最高優先級覆蓋)
+                    if (r === sr && c === sc) {
+                        cell.classList.add('!bg-blue-600');
+                        // 移除其他背景色干擾
+                        cell.classList.remove('!bg-blue-200', 'bg-blue-50', '!bg-red-50'); 
+                        mainNum.classList.add('!text-white');
+                        mainNum.classList.remove('text-blue-600', 'text-slate-900', '!text-red-500');
+                    }
+                }
+            }
+        }
+
+        function renderBoard() {
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    const cell = document.getElementById(`cell-${r}-${c}`);
+                    const val = state.board[r][c];
+                    const mainNum = cell.querySelector('span');
+                    const noteGrid = cell.querySelector('.note-grid');
+
+                    // 更新數字
+                    mainNum.textContent = val !== BLANK ? val : '';
+                    
+                    // 更新筆記
+                    if (val === BLANK && state.notes[r][c].size > 0) {
+                        noteGrid.classList.remove('hidden');
+                        const noteItems = noteGrid.querySelectorAll('.note-item');
+                        noteItems.forEach((item, idx) => {
+                            const num = idx + 1;
+                            item.textContent = state.notes[r][c].has(num) ? num : '';
+                        });
+                    } else {
+                        noteGrid.classList.add('hidden');
+                    }
+                }
+            }
+        }
+
+        function handleInput(num) {
+            if (!state.selectedCell || state.isGameWon) return;
+            const [r, c] = state.selectedCell;
+
+            // 不可修改題目
+            if (state.initialBoard[r][c] !== BLANK) return;
+
+            if (state.isNoteMode) {
+                if (num === BLANK) return;
+                if (state.board[r][c] !== BLANK) return;
+
+                if (state.notes[r][c].has(num)) {
+                    state.notes[r][c].delete(num);
+                } else {
+                    state.notes[r][c].add(num);
+                }
+                renderBoard(); // 這裡只需要重繪該格，為求簡便重繪整個板
+            } else {
+                // 填數字模式
+                const currentVal = state.board[r][c];
+                
+                // 清除或重複點擊
+                if (num === BLANK || num === currentVal) {
+                    state.board[r][c] = BLANK;
+                } else {
+                    state.board[r][c] = num;
+                    
+                    // 自動清理筆記
+                    if (num === state.solvedBoard[r][c]) {
+                        // 清除同行
+                        for (let x = 0; x < 9; x++) state.notes[r][x].delete(num);
+                        // 清除同列
+                        for (let x = 0; x < 9; x++) state.notes[x][c].delete(num);
+                        // 清除宮格
+                        const startR = Math.floor(r / 3) * 3;
+                        const startC = Math.floor(c / 3) * 3;
+                        for (let i = 0; i < 3; i++) {
+                            for (let j = 0; j < 3; j++) {
+                                state.notes[startR + i][startC + j].delete(num);
+                            }
+                        }
+                        state.notes[r][c].clear();
+                    } else {
+                        state.mistakes++;
+                        document.getElementById('mistakes').textContent = state.mistakes;
+                    }
+                }
+                
+                renderBoard();
+                updateHighlight();
+                checkWin();
+            }
+        }
+
+        function checkWin() {
+            // 檢查是否還有空白
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    if (state.board[r][c] === BLANK) return;
+                }
+            }
+
+            // 檢查是否正確
+            let isCorrect = true;
+            for (let r = 0; r < 9; r++) {
+                for (let c = 0; c < 9; c++) {
+                    if (state.board[r][c] !== state.solvedBoard[r][c]) {
+                        isCorrect = false;
+                        break;
+                    }
+                }
+            }
+
+            if (isCorrect) {
+                state.isGameWon = true;
+                state.isPlaying = false;
+                clearInterval(timerInterval);
+                document.getElementById('final-time').textContent = document.getElementById('timer').textContent;
+                document.getElementById('win-overlay').classList.remove('hidden');
+            }
+        }
+
+        // --- 事件監聽 ---
+
+        document.addEventListener('keydown', (e) => {
+            if (state.isGameWon) return;
+
+            // 快捷鍵 N
+            if (e.key.toLowerCase() === 'n') {
+                toggleNoteMode();
+                return;
+            }
+
+            // 方向鍵移動
+            if (state.selectedCell && (e.key.startsWith('Arrow') || ['w','a','s','d'].includes(e.key.toLowerCase()))) {
+                e.preventDefault();
+                const [r, c] = state.selectedCell;
+                let nr = r, nc = c;
+                if (e.key === 'ArrowUp' || e.key === 'w') nr = Math.max(0, r - 1);
+                if (e.key === 'ArrowDown' || e.key === 's') nr = Math.min(8, r + 1);
+                if (e.key === 'ArrowLeft' || e.key === 'a') nc = Math.max(0, c - 1);
+                if (e.key === 'ArrowRight' || e.key === 'd') nc = Math.min(8, c + 1);
+                selectCell(nr, nc);
+                return;
+            }
+
+            // 數字輸入
+            if (e.key >= '1' && e.key <= '9') {
+                handleInput(parseInt(e.key));
+            } else if (e.key === 'Backspace' || e.key === 'Delete' || e.key === '0') {
+                handleInput(BLANK);
+            }
+        });
+
+        // 初始化
+        initUI();
+        startNewGame();
+
+    </script>
+</body>
+</html>
